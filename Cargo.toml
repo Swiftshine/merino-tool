@@ -1,0 +1,9 @@
+[package]
+name = "merino-tool"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+anyhow = "1.0.98"
+byteorder = "1.5.0"
+ppc750cl = "0.3.2"

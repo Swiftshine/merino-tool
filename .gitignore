@@ -1,0 +1,8 @@
+*.rpx
+*.o
+tools/
+*.exe
+*.elf
+build/ 
+target/
+scratch/
