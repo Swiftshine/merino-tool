@@ -1,7 +1,7 @@
 use std::fs;
 use std::process::Command;
 use anyhow::{Result, bail};
-// use ppc750cl as disasm;
+use ppc750cl;
 use byteorder::{self, BigEndian, ByteOrder};
 use clap::Parser;
 use serde::Deserialize;
@@ -31,15 +31,15 @@ fn addresses_to_offsets(addresses: (usize, usize)) -> (usize, usize) {
     (address_to_offset(addresses.0), address_to_offset(addresses.1))
 }
 
-// fn code_to_instruction(code: u32) -> String {
-//     let result =  disasm::Ins::new(code).simplified().to_string();
+fn code_to_instruction(code: u32) -> String {
+    let result =  ppc750cl::Ins::new(code).simplified().to_string();
 
-//     if result != "<illegal>" {
-//         result
-//     } else {
-//         format!("<illegal; found: 0x{:08X}>", code)
-//     }
-// }
+    if result != "<illegal>" {
+        result
+    } else {
+        format!("<illegal; found: 0x{:08X}>", code)
+    }
+}
 
 
 /* */
@@ -103,7 +103,7 @@ fn main() -> Result<()> {
 
     let mut symbol_found = false;
 
-    let mut symbol_asm = Vec::new();
+    let mut found_symbol_asm = Vec::new();
 
     for line in lines {
         // check if it's a symbol
@@ -128,28 +128,77 @@ fn main() -> Result<()> {
         let hex_asm = &line[11..19];
         
         let code = u32::from_str_radix(hex_asm, 16)?;
-        symbol_asm.push(code);
+        found_symbol_asm.push(code);
     }
 
-    // print if the code is different
-
+    
     if !symbol_found {
         bail!("Failed to find symbol {} in {}", &args.target_symbol, &args.symbols_path);
     }
+    
+    // print if the code is different
 
+    let original_symbol_asm = &functions[&args.target_symbol];
 
-    println!("Identical: {}", functions[&args.target_symbol] == symbol_asm);
-
-    println!("Original:");
-    for instr in &functions[&args.target_symbol] {
-        print!("{:08X} ", instr);
+    if *original_symbol_asm == found_symbol_asm {
+        println!("The functions are identical.");
+        return Ok(());
     }
+
+    // check for the first diff
+
+    // things to ignore:
+    // - function/address relocs
+
+    // go through each instruction and compare
     
-    println!();
-    
-    println!("Compiled:");
-    for instr in symbol_asm {
-        print!("{:08X} ", instr);
+    for i in 0..original_symbol_asm.len() {
+        // check if the compiled function is long enough
+        if i >= found_symbol_asm.len() {
+            // todo - be descriptive
+            bail!("function too small");
+        }
+        
+        let origial_code = original_symbol_asm[i];
+        let found_code = found_symbol_asm[i];
+
+        let original_instruction = code_to_instruction(origial_code);
+        let found_instruction = code_to_instruction(found_code);
+
+        let mut can_ignore = false;
+
+        if original_instruction != found_instruction {
+            // check if the instruction is one of the following
+            // branch
+            // load
+            // store
+
+
+            // obviously there's more nuance than this because otherwise
+            // a lot of actual issues would be missed but i don't
+            // feel like implementing that rn
+            let ignored_instruction_types = [
+                "b",
+                "li",
+                "lis",
+                "stw",
+                "lfs",
+                "stfs",
+                
+                // among other offset-dependent instructions that i might have forgotten
+            ];
+
+            for ignored in ignored_instruction_types {
+                if original_instruction.contains(ignored) && found_instruction.contains(ignored) {
+                    can_ignore = true;
+                    break;
+                }
+            }
+
+            if !can_ignore {
+                bail!("Nonmatching instruction.\nOriginal: {}\nCompiled: {}", original_instruction, found_instruction);
+            }
+        }
     }
 
     Ok(())
